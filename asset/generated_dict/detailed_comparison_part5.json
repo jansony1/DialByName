@@ -1,0 +1,232 @@
+{
+  "SAINT LAURENT": {
+    "original_word": "SAINT LAURENT",
+    "file1_values": ["laurend", "laurent", "saind", "saind laurent", "saint", "saint laurend", "saint laurent", "saint-laurent", "saint_laurent", "saintlaurent", "synt lrnt"],
+    "file2_values": ["saint laurent", "saint blain"],
+    "differences": {
+      "unique_to_file1": ["laurend", "laurent", "saind", "saind laurent", "saint", "saint laurend", "saint-laurent", "saint_laurent", "saintlaurent", "synt lrnt"],
+      "unique_to_file2": ["saint blain"]
+    },
+    "common_values": ["saint laurent"]
+  },
+  "SAMSUNG STORE": {
+    "original_word": "SAMSUNG STORE",
+    "file1_values": ["samsung", "samsung sdore", "samsung store", "samsung-store", "samsung_store", "samsungstore", "samsunk", "samsunk store", "sansung", "sansung store", "sdore", "smsng str", "store"],
+    "file2_values": ["samsung store", "samsung storm", "samsungs to"],
+    "differences": {
+      "unique_to_file1": ["samsung", "samsung sdore", "samsung-store", "samsung_store", "samsungstore", "samsunk", "samsunk store", "sansung", "sansung store", "sdore", "smsng str", "store"],
+      "unique_to_file2": ["samsung storm", "samsungs to"]
+    },
+    "common_values": ["samsung store"]
+  },
+  "SEABUTTER": {
+    "original_word": "SEABUTTER",
+    "file1_values": ["c butter", "sata", "sbtr", "seabudder", "seabutter", "seavutter", "see but", "see butter"],
+    "file2_values": ["see butter", "c butter", "sata", "see but"],
+    "differences": {
+      "unique_to_file1": ["sbtr", "seabudder", "seabutter", "seavutter"],
+      "unique_to_file2": []
+    },
+    "common_values": ["c butter", "sata", "see but", "see butter"]
+  },
+  "SEE'S CANDY": {
+    "original_word": "SEE'S CANDY",
+    "file1_values": ["candy", "canty", "s's cndy", "sees", "sees candy", "sees canty", "sees-candy", "sees_candy", "seescandy"],
+    "file2_values": ["sees candy"],
+    "differences": {
+      "unique_to_file1": ["candy", "canty", "s's cndy", "sees", "sees canty", "sees-candy", "sees_candy", "seescandy"],
+      "unique_to_file2": []
+    },
+    "common_values": ["sees candy"]
+  },
+  "SEPHORA": {
+    "original_word": "SEPHORA",
+    "file1_values": ["safaa", "sebhora", "sephora", "sfr"],
+    "file2_values": ["safaa", "sephora"],
+    "differences": {
+      "unique_to_file1": ["sebhora", "sfr"],
+      "unique_to_file2": []
+    },
+    "common_values": ["safaa", "sephora"]
+  },
+  "SHADE STORE": {
+    "original_word": "SHADE STORE",
+    "file1_values": ["sade", "sade store", "sd str", "sdore", "shade", "shade sdore", "shade store", "shade-store", "shade_store", "shadestore", "shate", "shate store", "store"],
+    "file2_values": ["shade storm", "shade store", "shades door", "shades tall"],
+    "differences": {
+      "unique_to_file1": ["sade", "sade store", "sd str", "sdore", "shade", "shade sdore", "shade-store", "shade_store", "shadestore", "shate", "shate store", "store"],
+      "unique_to_file2": ["shade storm", "shades door", "shades tall"]
+    },
+    "common_values": ["shade store"]
+  },
+  "SHAKE SHACK": {
+    "original_word": "SHAKE SHACK",
+    "file1_values": ["sack", "sake", "sake shack", "shack", "shake", "shake sack", "shake shack", "shake-shack", "shake_shack", "shakeshack", "sk sk"],
+    "file2_values": ["sake zack", "sheikh shack", "jake shack", "shake shack", "shaikh shack", "shake a", "shake zack"],
+    "differences": {
+      "unique_to_file1": ["sack", "sake", "sake shack", "shack", "shake", "shake sack", "shake-shack", "shake_shack", "shakeshack", "sk sk"],
+      "unique_to_file2": ["sake zack", "sheikh shack", "jake shack", "shaikh shack", "shake a", "shake zack"]
+    },
+    "common_values": ["shake shack"]
+  },
+  "SPRINKLE CUPCAKE": {
+    "original_word": "SPRINKLE CUPCAKE",
+    "file1_values": ["cubcake", "cupcake", "sbrinkle", "sbrinkle cupcake", "sprinkle", "sprinkle cubcake", "sprinkle cupcake", "sprinkle-cupcake", "sprinkle_cupcake", "sprinklecupcake", "sprnkl cpck"],
+    "file2_values": ["sprinkle cupcake"],
+    "differences": {
+      "unique_to_file1": ["cubcake", "cupcake", "sbrinkle", "sbrinkle cupcake", "sprinkle", "sprinkle cubcake", "sprinkle-cupcake", "sprinkle_cupcake", "sprinklecupcake", "sprnkl cpck"],
+      "unique_to_file2": []
+    },
+    "common_values": ["sprinkle cupcake"]
+  },
+  "SUR LA TAB": {
+    "original_word": "SUR LA TAB",
+    "file1_values": ["dab", "la tab", "sr l tb", "sur", "sur la", "sur la dab", "sur la tab", "sur la tav", "sur-la-tab", "sur_la_tab", "surlatab", "tab", "tav"],
+    "file2_values": ["sir a tab", "so l a tab", "zero l eight a", "c a tab", "sarel tab", "so a t", "sir l a tab", "soon a lit up", "zr a", "so r a dab", "cat", "sur", "so a tab"],
+    "differences": {
+      "unique_to_file1": ["dab", "la tab", "sr l tb", "sur la", "sur la dab", "sur la tab", "sur la tav", "sur-la-tab", "sur_la_tab", "surlatab", "tab", "tav"],
+      "unique_to_file2": ["sir a tab", "so l a tab", "zero l eight a", "c a tab", "sarel tab", "so a t", "sir l a tab", "soon a lit up", "zr a", "so r a dab", "cat", "so a tab"]
+    },
+    "common_values": ["sur"]
+  },
+  "T AND CO": {
+    "original_word": "T AND CO",
+    "file1_values": ["and co", "ant", "d", "d and co", "t and", "t and c", "t and co", "t ant co", "t-and-co", "t_and_co", "tandco"],
+    "file2_values": ["tncl", "dnco", "tnco", "t and co", "t and ceo"],
+    "differences": {
+      "unique_to_file1": ["and co", "ant", "d", "d and co", "t and", "t and c", "t ant co", "t-and-co", "t_and_co", "tandco"],
+      "unique_to_file2": ["tncl", "dnco", "tnco", "t and ceo"]
+    },
+    "common_values": ["t and co"]
+  },
+  "TESLA": {
+    "original_word": "TESLA",
+    "file1_values": ["de la", "desla", "desley", "tesla", "tsl"],
+    "file2_values": ["desley", "de la", "tesla"],
+    "differences": {
+      "unique_to_file1": ["desla", "tsl"],
+      "unique_to_file2": []
+    },
+    "common_values": ["de la", "desley", "tesla"]
+  },
+  "THE SALON": {
+    "original_word": "THE SALON",
+    "file1_values": ["dhe", "dhe salon", "salon", "t sln", "the salon", "the-salon", "the_salon", "thesalon"],
+    "file2_values": ["the ceylon", "the salon", "this line", "the saline"],
+    "differences": {
+      "unique_to_file1": ["dhe", "dhe salon", "salon", "t sln", "the-salon", "the_salon", "thesalon"],
+      "unique_to_file2": ["the ceylon", "this line", "the saline"]
+    },
+    "common_values": ["the salon"]
+  },
+  "TIFFANY": {
+    "original_word": "TIFFANY",
+    "file1_values": ["diffany", "tfny", "tiffany", "tivvany", "to vinny"],
+    "file2_values": ["tiffany", "to vinny"],
+    "differences": {
+      "unique_to_file1": ["diffany", "tfny", "tivvany"],
+      "unique_to_file2": []
+    },
+    "common_values": ["tiffany", "to vinny"]
+  },
+  "TRATTORIA AMICI": {
+    "original_word": "TRATTORIA AMICI",
+    "file1_values": ["amici", "anici", "draddoria", "draddoria amici", "trattoria", "trattoria amici", "trattoria anici", "trattoria-amici", "trattoria_amici", "trattoriaamici", "trtr ams"],
+    "file2_values": ["tr i my eye", "trotter makai", "dr real my guy", "trotter rio mica", "um", "trotter mikai", "try to real my p", "try to r a my eye", "trotter and mikai", "striar rhea in my eye", "tra i a mikai", "chaudhury of mary", "tr to reel in my eye"],
+    "differences": {
+      "unique_to_file1": ["amici", "anici", "draddoria", "draddoria amici", "trattoria", "trattoria anici", "trattoria-amici", "trattoria_amici", "trattoriaamici", "trtr ams"],
+      "unique_to_file2": ["tr i my eye", "trotter makai", "dr real my guy", "trotter rio mica", "um", "trotter mikai", "try to real my p", "try to r a my eye", "trotter and mikai", "striar rhea in my eye", "tra i a mikai", "chaudhury of mary", "tr to reel in my eye"]
+    },
+    "common_values": ["trattoria amici"]
+  },
+  "TUFT AND NEEDLE": {
+    "original_word": "TUFT AND NEEDLE",
+    "file1_values": ["and needle", "ant", "dufd", "dufd and needle", "needle", "neetle", "tft and ndl", "tuft", "tuft and", "tuft and needle", "tuft and neetle", "tuft ant needle", "tuft-and-needle", "tuft_and_needle", "tuftandneedle", "tuvt", "tuvt and needle"],
+    "file2_values": ["taft and needle", "tuft and needle", "tft and meadow", "toughened the needle", "tuft the needle", "soft and needle"],
+    "differences": {
+      "unique_to_file1": ["and needle", "ant", "dufd", "dufd and needle", "needle", "neetle", "tft and ndl", "tuft", "tuft and", "tuft and neetle", "tuft ant needle", "tuft-and-needle", "tuft_and_needle", "tuftandneedle", "tuvt", "tuvt and needle"],
+      "unique_to_file2": ["taft and needle", "tft and meadow", "toughened the needle", "tuft the needle", "soft and needle"]
+    },
+    "common_values": ["tuft and needle"]
+  },
+  "TUMI": {
+    "original_word": "TUMI",
+    "file1_values": ["dumi", "tm", "to me", "tumi", "tuni"],
+    "file2_values": ["to me"],
+    "differences": {
+      "unique_to_file1": ["dumi", "tm", "tumi", "tuni"],
+      "unique_to_file2": []
+    },
+    "common_values": ["to me"]
+  },
+  "URBAN OUTFITTER": {
+    "original_word": "URBAN OUTFITTER",
+    "file1_values": ["oudfidder", "outfitter", "outvitter", "urban", "urban oudfidder", "urban outfitter", "urban outvitter", "urban-outfitter", "urban_outfitter", "urbanoutfitter", "urbn utftr", "urvan", "urvan outfitter"],
+    "file2_values": ["urban outfitter"],
+    "differences": {
+      "unique_to_file1": ["oudfidder", "outfitter", "outvitter", "urban", "urban oudfidder", "urban outvitter", "urban-outfitter", "urban_outfitter", "urbanoutfitter", "urbn utftr", "urvan", "urvan outfitter"],
+      "unique_to_file2": []
+    },
+    "common_values": ["urban outfitter"]
+  },
+  "VENETA": {
+    "original_word": "VENETA",
+    "file1_values": ["aa", "be", "beneta", "they", "v", "veneda", "veneta", "venuta", "vidar", "vitter", "vnt", "we know that"],
+    "file2_values": ["aa", "they", "venuta", "veneta", "vitter", "we know that", "v", "be", "vidar"],
+    "differences": {
+      "unique_to_file1": ["beneta", "veneda", "vnt"],
+      "unique_to_file2": []
+    },
+    "common_values": ["aa", "be", "they", "v", "veneta", "venuta", "vidar", "vitter", "we know that"]
+  },
+  "WARBY PARKER": {
+    "original_word": "WARBY PARKER",
+    "file1_values": ["barker", "parker", "warby", "warby barker", "warby parker", "warby-parker", "warby_parker", "warbyparker", "warvy", "warvy parker", "wrby prkr"],
+    "file2_values": ["robbie parker", "warby parker", "wv parker", "warra bee parker", "larrabee parker", "yb parker", "why are we parker"],
+    "differences": {
+      "unique_to_file1": ["barker", "parker", "warby", "warby barker", "warby-parker", "warby_parker", "warbyparker", "warvy", "warvy parker", "wrby prkr"],
+      "unique_to_file2": ["robbie parker", "wv parker", "warra bee parker", "larrabee parker", "yb parker", "why are we parker"]
+    },
+    "common_values": ["warby parker"]
+  },
+  "WETZEL'S PRETZELS": {
+    "original_word": "WETZEL'S PRETZELS",
+    "file1_values": ["bretzels", "predzels", "pretsels", "pretzels", "wedzels", "wedzels pretzels", "wetsels", "wetsels pretzels", "wetzels", "wetzels bretzels", "wetzels predzels", "wetzels pretsels", "wetzels pretzels", "wetzels-pretzels", "wetzels_pretzels", "wetzelspretzels", "wtzl's prtzls"],
+    "file2_values": [],
+    "differences": {
+      "unique_to_file1": ["bretzels", "predzels", "pretsels", "pretzels", "wedzels", "wedzels pretzels", "wetsels", "wetsels pretzels", "wetzels", "wetzels bretzels", "wetzels predzels", "wetzels pretsels", "wetzels pretzels", "wetzels-pretzels", "wetzels_pretzels", "wetzelspretzels", "wtzl's prtzls"],
+      "unique_to_file2": []
+    },
+    "common_values": []
+  },
+  "WINE BAR": {
+    "original_word": "WINE BAR",
+    "file1_values": ["bar", "var", "wine", "wine bar", "wine var", "wine-bar", "wine_bar", "winebar", "wn br"],
+    "file2_values": ["wine bar", "wayne barr"],
+    "differences": {
+      "unique_to_file1": ["bar", "var", "wine", "wine var", "wine-bar", "wine_bar", "winebar", "wn br"],
+      "unique_to_file2": ["wayne barr"]
+    },
+    "common_values": ["wine bar"]
+  },
+  "YSL": {
+    "original_word": "YSL",
+    "file1_values": ["wire cell", "y la l", "yl", "ysl"],
+    "file2_values": ["wire cell", "y la l", "yl", "ysl"],
+    "differences": {
+      "unique_to_file1": [],
+      "unique_to_file2": []
+    },
+    "common_values": ["wire cell", "y la l", "yl", "ysl"]
+  },
+  "YURMAN": {
+    "original_word": "YURMAN",
+    "file1_values": ["erman", "german", "uriman", "y", "yeah i mean", "yeah man", "yemen", "yeoman", "yorman", "you are a man", "youman", "your men", "yrmn", "yurman", "yurnan"],
+    "file2_values": ["yeah man", "y", "yemen", "german", "yeah i mean", "yeoman", "erman", "your men", "you are a man", "uriman", "youman", "yorman"],
+    "differences": {
+      "unique_to_file1": ["yrmn", "yurman", "yurnan"],
+      "unique_to_file2": []
+    },
+    "common_values": ["erman", "german", "uriman", "y", "yeah i mean", "yeah man", "yemen", "yeoman", "yorman", "you are a man", "youman", "your men"]
+  }
+}
