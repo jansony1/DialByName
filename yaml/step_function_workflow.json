@@ -1,0 +1,100 @@
+{
+    "Comment": "Voice Matching Workflow",
+    "StartAt": "AudioGeneration",
+    "TimeoutSeconds": 3600,
+    "States": {
+        "AudioGeneration": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+                "FunctionName": "polly-audio-generator-lambda",
+                "Payload": {
+                    "input_file.$": "$.s3_input_file"
+                }
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2.0
+                }
+            ],
+            "Catch": [
+                {
+                    "ErrorEquals": ["States.ALL"],
+                    "Next": "AudioGenerationFailed",
+                    "ResultPath": "$.error"
+                }
+            ],
+            "Next": "Transcription"
+        },
+        "AudioGenerationFailed": {
+            "Type": "Fail",
+            "Cause": "Audio generation failed",
+            "Error": "AudioGenerationError"
+        },
+        "Transcription": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+                "FunctionName": "transcribe-audio-lambda",
+                "Payload": {
+                    "audio_files.$": "$.generated_audio_files"
+                }
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2.0
+                }
+            ],
+            "Catch": [
+                {
+                    "ErrorEquals": ["States.ALL"],
+                    "Next": "TranscriptionFailed",
+                    "ResultPath": "$.error"
+                }
+            ],
+            "Next": "ProcessTranscriptions"
+        },
+        "TranscriptionFailed": {
+            "Type": "Fail",
+            "Cause": "Transcription failed",
+            "Error": "TranscriptionError"
+        },
+        "ProcessTranscriptions": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+                "FunctionName": "process-transcriptions-lambda",
+                "Payload": {
+                    "transcription_results.$": "$.transcription_results"
+                }
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2.0
+                }
+            ],
+            "Catch": [
+                {
+                    "ErrorEquals": ["States.ALL"],
+                    "Next": "ProcessTranscriptionsFailed",
+                    "ResultPath": "$.error"
+                }
+            ],
+            "End": true
+        },
+        "ProcessTranscriptionsFailed": {
+            "Type": "Fail",
+            "Cause": "Processing transcriptions failed",
+            "Error": "ProcessingError"
+        }
+    }
+}

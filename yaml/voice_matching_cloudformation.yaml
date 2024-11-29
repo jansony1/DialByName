@@ -1,0 +1,462 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Voice Matching Project Infrastructure'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: VoiceMatchingProject
+  S3BucketName:
+    Type: String
+    Default: voice-matching-zytest
+  PythonRuntimeVersion:
+    Type: String
+    Default: python3.11
+  InputPrefix:
+    Type: String
+    Default: input/
+  GeneratedAudioPrefix:
+    Type: String
+    Default: generated_audio/
+  TranscriptionPrefix:
+    Type: String
+    Default: transcriptions/
+  ProcessedDictPrefix:
+    Type: String
+    Default: processed_dict/
+
+Resources:
+  VoiceMatchingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketName
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: VoiceMatchingLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                  - transcribe:*
+                  - polly:*
+                Resource: 
+                  - !Sub arn:aws:s3:::${S3BucketName}
+                  - !Sub arn:aws:s3:::${S3BucketName}/*
+
+  VoiceMatchingLambdaLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Sub ${ProjectName}-dependencies
+      Description: Dependencies for Voice Matching Project
+      Content:
+        S3Bucket: !Ref S3BucketName
+        S3Key: lambda_layer.zip
+      CompatibleRuntimes:
+        - python3.11
+
+  PollyAudioGeneratorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-polly-audio-generator
+      Runtime: !Ref PythonRuntimeVersion
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Handler: index.lambda_handler
+      Layers:
+        - !Ref VoiceMatchingLambdaLayer
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import sys
+          import tempfile
+
+          sys.path.append('/opt/python')
+          from offline.polly_audio_generator import generate_audio, load_input_data
+
+          def lambda_handler(event, context):
+              s3_client = boto3.client('s3')
+              
+              try:
+                  input_bucket = os.environ['INPUT_BUCKET']
+                  input_prefix = os.environ['INPUT_PREFIX']
+                  output_bucket = os.environ['OUTPUT_BUCKET']
+                  output_prefix = os.environ['OUTPUT_PREFIX']
+
+                  input_files = s3_client.list_objects_v2(
+                      Bucket=input_bucket, 
+                      Prefix=input_prefix
+                  )['Contents']
+
+                  generated_files = []
+                  for file_obj in input_files:
+                      input_key = file_obj['Key']
+                      
+                      with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as temp_input:
+                          s3_client.download_fileobj(input_bucket, input_key, temp_input)
+                          temp_input_path = temp_input.name
+
+                      input_data = load_input_data(temp_input_path)
+                      
+                      for item in input_data:
+                          word = item['word']
+                          for lang_code, lang_name in {
+                              'en-US': 'English_US',
+                              'en-GB': 'English_British',
+                              'en-IN': 'English_Indian'
+                          }.items():
+                              voices = ['Joanna', 'Matthew', 'Amy']
+                              for voice in voices:
+                                  audio_content = generate_audio(word, voice)
+                                  if audio_content:
+                                      filename = f"{word.replace(' ', '_')}_{lang_name}_{voice}.mp3"
+                                      output_key = f"{output_prefix}{filename}"
+                                      
+                                      s3_client.put_object(
+                                          Bucket=output_bucket,
+                                          Key=output_key,
+                                          Body=audio_content
+                                      )
+                                      generated_files.append(output_key)
+
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps({
+                          'message': 'Audio generation completed',
+                          'generated_files': generated_files
+                      })
+                  }
+              except Exception as e:
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({'error': str(e)})
+                  }
+      Environment:
+        Variables:
+          INPUT_BUCKET: !Ref S3BucketName
+          INPUT_PREFIX: !Ref InputPrefix
+          OUTPUT_BUCKET: !Ref S3BucketName
+          OUTPUT_PREFIX: !Ref GeneratedAudioPrefix
+      Timeout: 300
+      MemorySize: 512
+
+  TranscribeAudioLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-transcribe-audio
+      Runtime: !Ref PythonRuntimeVersion
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Handler: index.lambda_handler
+      Layers:
+        - !Ref VoiceMatchingLambdaLayer
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import sys
+          import tempfile
+
+          sys.path.append('/opt/python')
+          from offline.transcribe_audio import process_batch
+
+          def lambda_handler(event, context):
+              s3_client = boto3.client('s3')
+              
+              try:
+                  input_bucket = os.environ['INPUT_BUCKET']
+                  input_prefix = os.environ['INPUT_PREFIX']
+                  output_bucket = os.environ['OUTPUT_BUCKET']
+                  output_prefix = os.environ['OUTPUT_PREFIX']
+
+                  input_files = s3_client.list_objects_v2(
+                      Bucket=input_bucket, 
+                      Prefix=input_prefix
+                  )['Contents']
+
+                  audio_files = [
+                      os.path.join('/tmp', os.path.basename(file_obj['Key']))
+                      for file_obj in input_files
+                  ]
+
+                  for file_obj in input_files:
+                      input_key = file_obj['Key']
+                      local_path = os.path.join('/tmp', os.path.basename(input_key))
+                      s3_client.download_file(input_bucket, input_key, local_path)
+
+                  transcription_results = process_batch(audio_files)
+
+                  output_key = f"{output_prefix}transcription_results.json"
+                  s3_client.put_object(
+                      Bucket=output_bucket,
+                      Key=output_key,
+                      Body=json.dumps(transcription_results, indent=2)
+                  )
+
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps({
+                          'message': 'Transcription completed',
+                          'transcription_results_key': output_key
+                      })
+                  }
+              except Exception as e:
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({'error': str(e)})
+                  }
+      Environment:
+        Variables:
+          INPUT_BUCKET: !Ref S3BucketName
+          INPUT_PREFIX: !Ref GeneratedAudioPrefix
+          OUTPUT_BUCKET: !Ref S3BucketName
+          OUTPUT_PREFIX: !Ref TranscriptionPrefix
+      Timeout: 600
+      MemorySize: 1024
+
+  ProcessTranscriptionsLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-process-transcriptions
+      Runtime: !Ref PythonRuntimeVersion
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Handler: index.lambda_handler
+      Layers:
+        - !Ref VoiceMatchingLambdaLayer
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import sys
+          import tempfile
+
+          sys.path.append('/opt/python')
+          from offline.generate_variations_dict import generate_variations_dictionary
+
+          def lambda_handler(event, context):
+              s3_client = boto3.client('s3')
+              
+              try:
+                  input_bucket = os.environ['INPUT_BUCKET']
+                  input_prefix = os.environ['INPUT_PREFIX']
+                  output_bucket = os.environ['OUTPUT_BUCKET']
+                  output_prefix = os.environ['OUTPUT_PREFIX']
+
+                  # Download transcription results
+                  transcription_files = s3_client.list_objects_v2(
+                      Bucket=input_bucket, 
+                      Prefix=input_prefix
+                  )['Contents']
+
+                  transcription_file = transcription_files[0]
+                  local_transcription_path = '/tmp/transcription_results.json'
+                  s3_client.download_file(
+                      input_bucket, 
+                      transcription_file['Key'], 
+                      local_transcription_path
+                  )
+
+                  # Download input dictionary
+                  input_dict_path = '/tmp/input_dictionary.json'
+                  s3_client.download_file(
+                      input_bucket, 
+                      'input/dictionary.json', 
+                      input_dict_path
+                  )
+
+                  # Generate variations dictionary
+                  variations_dict = generate_variations_dictionary(
+                      input_dict_path, 
+                      local_transcription_path
+                  )
+
+                  # Save variations dictionary to S3
+                  output_key = f"{output_prefix}variations_dictionary.json"
+                  s3_client.put_object(
+                      Bucket=output_bucket,
+                      Key=output_key,
+                      Body=json.dumps(variations_dict, indent=2)
+                  )
+
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps({
+                          'message': 'Dictionary generation completed',
+                          'variations_dict_key': output_key
+                      })
+                  }
+              except Exception as e:
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({'error': str(e)})
+                  }
+      Environment:
+        Variables:
+          INPUT_BUCKET: !Ref S3BucketName
+          INPUT_PREFIX: !Ref TranscriptionPrefix
+          OUTPUT_BUCKET: !Ref S3BucketName
+          OUTPUT_PREFIX: !Ref ProcessedDictPrefix
+      Timeout: 300
+      MemorySize: 512
+
+  StepFunctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StepFunctionLambdaInvocation
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: 
+                  - !GetAtt PollyAudioGeneratorLambda.Arn
+                  - !GetAtt TranscribeAudioLambda.Arn
+                  - !GetAtt ProcessTranscriptionsLambda.Arn
+
+  VoiceMatchingStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub ${ProjectName}-workflow
+      DefinitionString: 
+        !Sub |
+          {
+            "Comment": "Voice Matching Workflow",
+            "StartAt": "AudioGeneration",
+            "TimeoutSeconds": 3600,
+            "States": {
+              "AudioGeneration": {
+                "Type": "Task",
+                "Resource": "${PollyAudioGeneratorLambda.Arn}",
+                "Next": "Transcription",
+                "Retry": [
+                  {
+                    "ErrorEquals": ["States.ALL"],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2.0
+                  }
+                ]
+              },
+              "Transcription": {
+                "Type": "Task",
+                "Resource": "${TranscribeAudioLambda.Arn}",
+                "Next": "ProcessTranscriptions",
+                "Retry": [
+                  {
+                    "ErrorEquals": ["States.ALL"],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2.0
+                  }
+                ]
+              },
+              "ProcessTranscriptions": {
+                "Type": "Task",
+                "Resource": "${ProcessTranscriptionsLambda.Arn}",
+                "End": true,
+                "Retry": [
+                  {
+                    "ErrorEquals": ["States.ALL"],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2.0
+                  }
+                ]
+              }
+            }
+          }
+      RoleArn: !GetAtt StepFunctionExecutionRole.Arn
+
+  EventBridgeStepFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: EventBridgeStepFunctionInvocation
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource: !Ref VoiceMatchingStateMachine
+
+  S3UploadEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub ${ProjectName}-s3-upload-trigger
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - !Ref S3BucketName
+          object:
+            key:
+              - prefix: !Ref InputPrefix
+      Targets:
+        - Arn: !Ref VoiceMatchingStateMachine
+          Id: TriggerStepFunction
+          RoleArn: !GetAtt EventBridgeStepFunctionRole.Arn
+
+Outputs:
+  S3BucketName:
+    Description: S3 Bucket for Voice Matching Project
+    Value: !Ref VoiceMatchingBucket
+  
+  StateMachineArn:
+    Description: Step Function State Machine ARN
+    Value: !Ref VoiceMatchingStateMachine
+  
+  PollyAudioGeneratorLambdaArn:
+    Description: Polly Audio Generator Lambda Function ARN
+    Value: !GetAtt PollyAudioGeneratorLambda.Arn
+  
+  TranscribeAudioLambdaArn:
+    Description: Transcribe Audio Lambda Function ARN
+    Value: !GetAtt TranscribeAudioLambda.Arn
+  
+  ProcessTranscriptionsLambdaArn:
+    Description: Process Transcriptions Lambda Function ARN
+    Value: !GetAtt ProcessTranscriptionsLambda.Arn

@@ -1,7 +1,0 @@
-streamlit
-boto3
-sounddevice
-numpy
-amazon-transcribe
-requests
-python-dotenv
