@@ -25,12 +25,16 @@ def get_compatible_voices(language_code):
         print(f"Error getting voices: {error}")
         return []
 
-def generate_audio(text, voice_id, output_format='mp3'):
+def generate_audio(text, voice_id, lang_code, polly_client=None):
     try:
+        if polly_client is None:
+            polly_client = boto3.client('polly', region_name='us-west-2')
+            
         response = polly_client.synthesize_speech(
             Text=text,
-            OutputFormat=output_format,
-            VoiceId=voice_id
+            OutputFormat='mp3',
+            VoiceId=voice_id,
+            LanguageCode=lang_code
         )
         return response['AudioStream'].read()
     except (BotoCoreError, ClientError) as error:
@@ -60,7 +64,7 @@ def main():
         for lang_code, lang_name in languages.items():
             voices = get_compatible_voices(lang_code)
             for voice in voices:
-                audio_content = generate_audio(word, voice)
+                audio_content = generate_audio(word, voice, lang_code)
                 if audio_content:
                     filename = f"audio_file/{word.replace(' ', '_')}_{lang_name.replace(', ', '_')}_{voice}.mp3"
                     with open(filename, 'wb') as file:

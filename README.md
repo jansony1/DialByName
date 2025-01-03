@@ -63,15 +63,21 @@ pip freeze > requirements.txt
 #### 3. Prepare Lambda Layer Structure
 ```bash
 # Create layer directory structure
-mkdir -p lambda_layer/python
+mkdir -p lambda_layer/python/offline
+
+# Install dependencies
 pip install -r requirements.txt -t lambda_layer/python
+
+# Copy Python scripts to offline package
+cp py/*.py lambda_layer/python/offline/
+touch lambda_layer/python/offline/__init__.py
 ```
 
 #### 4. Create Lambda Layer ZIP
 ```bash
 # Compress layer
 cd lambda_layer
-zip -r ../lambda_layer.zip python
+zip -r ../lambda_layer.zip python/
 cd ..
 ```
 
@@ -89,11 +95,22 @@ aws s3 cp lambda_layer.zip s3://voice-matching-zytest/lambda_layer.zip
 
 ### Deploy CloudFormation Stack
 ```bash
-aws cloudformation create-stack \
-  --stack-name voice-matching-project \
-  --template-body file://voice_matching_cloudformation.yaml \
-  --capabilities CAPABILITY_IAM
+aws cloudformation create-stack
+--stack-name voice-matching-project-1
+--template-body file://full_stack.yaml
+--capabilities CAPABILITY_IAM
+--parameters
+ParameterKey=ProjectName,ParameterValue=VoiceMatchingProject
+ParameterKey=ExistingS3BucketName,ParameterValue=voice-matching-zytest
+ParameterKey=PythonRuntimeVersion,ParameterValue=python3.10
+ParameterKey=InputPrefix,ParameterValue=input/
+ParameterKey=GeneratedAudioPrefix,ParameterValue=generated_audio/
+ParameterKey=TranscriptionPrefix,ParameterValue=transcriptions/
+ParameterKey=ProcessedDictPrefix,ParameterValue=processed_dict/
 ```
+
+### S3 event notication
+Please ensure your target s3 eventbrigde notification was configured to **on**
 
 ## Configuration
 

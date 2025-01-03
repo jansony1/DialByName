@@ -5,9 +5,9 @@ Parameters:
   ProjectName:
     Type: String
     Default: VoiceMatchingProject
-  S3BucketName:
+  ExistingS3BucketName:
     Type: String
-    Default: voice-matching-zytest
+    Description: 'Name of the existing S3 bucket to use'
   PythonRuntimeVersion:
     Type: String
     Default: python3.11
@@ -25,18 +25,6 @@ Parameters:
     Default: processed_dict/
 
 Resources:
-  VoiceMatchingBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Ref S3BucketName
-      VersioningConfiguration:
-        Status: Enabled
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -59,11 +47,18 @@ Resources:
                   - s3:GetObject
                   - s3:PutObject
                   - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${ExistingS3BucketName}
+                  - !Sub arn:aws:s3:::${ExistingS3BucketName}/*
+              - Effect: Allow
+                Action:
                   - transcribe:*
-                  - polly:*
-                Resource: 
-                  - !Sub arn:aws:s3:::${S3BucketName}
-                  - !Sub arn:aws:s3:::${S3BucketName}/*
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - polly:DescribeVoices
+                  - polly:SynthesizeSpeech
+                Resource: "*"
 
   VoiceMatchingLambdaLayer:
     Type: AWS::Lambda::LayerVersion
@@ -71,7 +66,7 @@ Resources:
       LayerName: !Sub ${ProjectName}-dependencies
       Description: Dependencies for Voice Matching Project
       Content:
-        S3Bucket: !Ref S3BucketName
+        S3Bucket: !Ref ExistingS3BucketName
         S3Key: lambda_layer.zip
       CompatibleRuntimes:
         - python3.11
@@ -86,7 +81,7 @@ Resources:
       Layers:
         - !Ref VoiceMatchingLambdaLayer
       Code:
-        ZipFile: |
+        ZipFile: !Sub |
           import json
           import boto3
           import os
@@ -98,6 +93,7 @@ Resources:
 
           def lambda_handler(event, context):
               s3_client = boto3.client('s3')
+              polly_client = boto3.client('polly')
               
               try:
                   input_bucket = os.environ['INPUT_BUCKET']
@@ -123,13 +119,17 @@ Resources:
                       for item in input_data:
                           word = item['word']
                           for lang_code, lang_name in {
-                              'en-US': 'English_US',
+                              'en-AU': 'English_Australian',
                               'en-GB': 'English_British',
-                              'en-IN': 'English_Indian'
+                              'en-IN': 'English_Indian',
+                              'en-NZ': 'English_NewZealand',
+                              'en-ZA': 'English_SouthAfrican',
+                              'en-US': 'English_US'
                           }.items():
-                              voices = ['Joanna', 'Matthew', 'Amy']
-                              for voice in voices:
-                                  audio_content = generate_audio(word, voice)
+                              voices = polly_client.describe_voices(LanguageCode=lang_code)['Voices']
+                              selected_voices = [voice['Name'] for voice in voices if voice['Gender'] in ['Female', 'Male']][:3]
+                              for voice in selected_voices:
+                                  audio_content = generate_audio(word, voice, lang_code, polly_client)
                                   if audio_content:
                                       filename = f"{word.replace(' ', '_')}_{lang_name}_{voice}.mp3"
                                       output_key = f"{output_prefix}{filename}"
@@ -155,9 +155,9 @@ Resources:
                   }
       Environment:
         Variables:
-          INPUT_BUCKET: !Ref S3BucketName
+          INPUT_BUCKET: !Ref ExistingS3BucketName
           INPUT_PREFIX: !Ref InputPrefix
-          OUTPUT_BUCKET: !Ref S3BucketName
+          OUTPUT_BUCKET: !Ref ExistingS3BucketName
           OUTPUT_PREFIX: !Ref GeneratedAudioPrefix
       Timeout: 300
       MemorySize: 512
@@ -172,7 +172,7 @@ Resources:
       Layers:
         - !Ref VoiceMatchingLambdaLayer
       Code:
-        ZipFile: |
+        ZipFile: !Sub |
           import json
           import boto3
           import os
@@ -229,9 +229,9 @@ Resources:
                   }
       Environment:
         Variables:
-          INPUT_BUCKET: !Ref S3BucketName
+          INPUT_BUCKET: !Ref ExistingS3BucketName
           INPUT_PREFIX: !Ref GeneratedAudioPrefix
-          OUTPUT_BUCKET: !Ref S3BucketName
+          OUTPUT_BUCKET: !Ref ExistingS3BucketName
           OUTPUT_PREFIX: !Ref TranscriptionPrefix
       Timeout: 600
       MemorySize: 1024
@@ -246,7 +246,7 @@ Resources:
       Layers:
         - !Ref VoiceMatchingLambdaLayer
       Code:
-        ZipFile: |
+        ZipFile: !Sub |
           import json
           import boto3
           import os
@@ -254,7 +254,7 @@ Resources:
           import tempfile
 
           sys.path.append('/opt/python')
-          from offline.generate_variations_dict import generate_variations_dictionary
+          from offline.process_transcriptions import process_transcriptions
 
           def lambda_handler(event, context):
               s3_client = boto3.client('s3')
@@ -287,18 +287,18 @@ Resources:
                       input_dict_path
                   )
 
-                  # Generate variations dictionary
-                  variations_dict = generate_variations_dictionary(
-                      input_dict_path, 
-                      local_transcription_path
-                  )
-
-                  # Save variations dictionary to S3
-                  output_key = f"{output_prefix}variations_dictionary.json"
+                  # Process transcriptions
+                  output_key = f"{output_prefix}processed_transcriptions.json"
+                  process_transcriptions(input_dict_path, local_transcription_path, output_key)
+                  
+                  # Upload processed file to S3
+                  with open(output_key, 'r') as f:
+                      processed_data = f.read()
+                      
                   s3_client.put_object(
                       Bucket=output_bucket,
                       Key=output_key,
-                      Body=json.dumps(variations_dict, indent=2)
+                      Body=processed_data
                   )
 
                   return {
@@ -315,9 +315,9 @@ Resources:
                   }
       Environment:
         Variables:
-          INPUT_BUCKET: !Ref S3BucketName
+          INPUT_BUCKET: !Ref ExistingS3BucketName
           INPUT_PREFIX: !Ref TranscriptionPrefix
-          OUTPUT_BUCKET: !Ref S3BucketName
+          OUTPUT_BUCKET: !Ref ExistingS3BucketName
           OUTPUT_PREFIX: !Ref ProcessedDictPrefix
       Timeout: 300
       MemorySize: 512
@@ -340,7 +340,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - lambda:InvokeFunction
-                Resource: 
+                Resource:
                   - !GetAtt PollyAudioGeneratorLambda.Arn
                   - !GetAtt TranscribeAudioLambda.Arn
                   - !GetAtt ProcessTranscriptionsLambda.Arn
@@ -349,7 +349,7 @@ Resources:
     Type: AWS::StepFunctions::StateMachine
     Properties:
       StateMachineName: !Sub ${ProjectName}-workflow
-      DefinitionString: 
+      DefinitionString:
         !Sub |
           {
             "Comment": "Voice Matching Workflow",
@@ -431,7 +431,7 @@ Resources:
         detail:
           bucket:
             name:
-              - !Ref S3BucketName
+              - !Ref ExistingS3BucketName
           object:
             key:
               - prefix: !Ref InputPrefix
@@ -441,22 +441,6 @@ Resources:
           RoleArn: !GetAtt EventBridgeStepFunctionRole.Arn
 
 Outputs:
-  S3BucketName:
-    Description: S3 Bucket for Voice Matching Project
-    Value: !Ref VoiceMatchingBucket
-  
   StateMachineArn:
-    Description: Step Function State Machine ARN
+    Description: Step Function State Machine
     Value: !Ref VoiceMatchingStateMachine
-  
-  PollyAudioGeneratorLambdaArn:
-    Description: Polly Audio Generator Lambda Function ARN
-    Value: !GetAtt PollyAudioGeneratorLambda.Arn
-  
-  TranscribeAudioLambdaArn:
-    Description: Transcribe Audio Lambda Function ARN
-    Value: !GetAtt TranscribeAudioLambda.Arn
-  
-  ProcessTranscriptionsLambdaArn:
-    Description: Process Transcriptions Lambda Function ARN
-    Value: !GetAtt ProcessTranscriptionsLambda.Arn
