@@ -127,7 +127,7 @@ Resources:
                               'en-US': 'English_US'
                           }.items():
                               voices = polly_client.describe_voices(LanguageCode=lang_code)['Voices']
-                              selected_voices = [voice['Name'] for voice in voices if voice['Gender'] in ['Female', 'Male']][:3]
+                              selected_voices = [voice['Name'] for voice in voices if voice['Gender'] in ['Female', 'Male']][:2]
                               for voice in selected_voices:
                                   audio_content = generate_audio(word, voice, lang_code, polly_client)
                                   if audio_content:
