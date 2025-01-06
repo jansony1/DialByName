@@ -71,7 +71,19 @@
           }
         }
       },
-      "Next": "CollectRetries"
+      "Next": "CollectRetries",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "TranscriptionMapFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "TranscriptionMapFailed": {
+      "Type": "Fail",
+      "Cause": "All transcription attempts failed",
+      "Error": "TranscriptionMapError"
     },
     "CollectRetries": {
       "Type": "Pass",
@@ -137,7 +149,19 @@
           }
         }
       },
-      "Next": "CollectRetries"
+      "Next": "CollectRetries",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "RetryMapFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+    "RetryMapFailed": {
+      "Type": "Fail",
+      "Cause": "All retry attempts failed",
+      "Error": "RetryMapError"
     },
     "ProcessTranscriptions": {
       "Type": "Task",
