@@ -59,11 +59,59 @@
                                 "s3_uris.$": "$$.Map.Item.Value"
                             }
                         },
+                        "Retry": [
+                            {
+                                "ErrorEquals": ["States.TaskFailed"],
+                                "IntervalSeconds": 30,
+                                "MaxAttempts": 3,
+                                "BackoffRate": 2.0
+                            }
+                        ],
+                        "Catch": [
+                            {
+                                "ErrorEquals": ["States.ALL"],
+                                "ResultPath": "$.error",
+                                "Next": "HandleChunkError"
+                            }
+                        ],
+                        "Next": "CheckChunkResult"
+                    },
+                    "CheckChunkResult": {
+                        "Type": "Choice",
+                        "Choices": [
+                            {
+                                "Variable": "$.error",
+                                "IsPresent": true,
+                                "Next": "HandleChunkError"
+                            }
+                        ],
+                        "Default": "ChunkSuccess"
+                    },
+                    "HandleChunkError": {
+                        "Type": "Pass",
+                        "Parameters": {
+                            "statusCode": 200,
+                            "body": {
+                                "completed": {},
+                                "retryable_uris.$": "$$.Map.Item.Value"
+                            }
+                        },
+                        "End": true
+                    },
+                    "ChunkSuccess": {
+                        "Type": "Pass",
                         "End": true
                     }
                 }
             },
-            "Next": "CheckRetries"
+            "Next": "CheckRetries",
+            "Catch": [
+                {
+                    "ErrorEquals": ["States.ALL"],
+                    "Next": "TranscriptionMapFailed",
+                    "ResultPath": "$.error"
+                }
+            ]
         },
         "CheckRetries": {
             "Type": "Pass",
@@ -113,11 +161,59 @@
                                 "is_retry": true
                             }
                         },
+                        "Retry": [
+                            {
+                                "ErrorEquals": ["States.TaskFailed"],
+                                "IntervalSeconds": 30,
+                                "MaxAttempts": 3,
+                                "BackoffRate": 2.0
+                            }
+                        ],
+                        "Catch": [
+                            {
+                                "ErrorEquals": ["States.ALL"],
+                                "ResultPath": "$.error",
+                                "Next": "HandleRetryError"
+                            }
+                        ],
+                        "Next": "CheckRetryResult"
+                    },
+                    "CheckRetryResult": {
+                        "Type": "Choice",
+                        "Choices": [
+                            {
+                                "Variable": "$.error",
+                                "IsPresent": true,
+                                "Next": "HandleRetryError"
+                            }
+                        ],
+                        "Default": "RetrySuccess"
+                    },
+                    "HandleRetryError": {
+                        "Type": "Pass",
+                        "Parameters": {
+                            "statusCode": 200,
+                            "body": {
+                                "completed": {},
+                                "retryable_uris.$": "$$.Map.Item.Value"
+                            }
+                        },
+                        "End": true
+                    },
+                    "RetrySuccess": {
+                        "Type": "Pass",
                         "End": true
                     }
                 }
             },
-            "Next": "CheckRetries"
+            "Next": "CheckRetries",
+            "Catch": [
+                {
+                    "ErrorEquals": ["States.ALL"],
+                    "Next": "RetryMapFailed",
+                    "ResultPath": "$.error"
+                }
+            ]
         },
         "ProcessTranscriptions": {
             "Type": "Task",
@@ -149,6 +245,16 @@
                 }
             ],
             "End": true
+        },
+        "TranscriptionMapFailed": {
+            "Type": "Fail",
+            "Cause": "All transcription attempts failed",
+            "Error": "TranscriptionMapError"
+        },
+        "RetryMapFailed": {
+            "Type": "Fail",
+            "Cause": "All retry attempts failed",
+            "Error": "RetryMapError"
         },
         "ProcessTranscriptionsFailed": {
             "Type": "Fail",

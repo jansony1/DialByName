@@ -101,20 +101,26 @@ Resources:
                   output_bucket = os.environ['OUTPUT_BUCKET']
                   output_prefix = os.environ['OUTPUT_PREFIX']
 
-                  input_files = s3_client.list_objects_v2(
-                      Bucket=input_bucket, 
-                      Prefix=input_prefix
-                  )['Contents']
+                  # Print event for debugging
+                  print("Event:", json.dumps(event))
 
                   generated_files = []
-                  for file_obj in input_files:
-                      input_key = file_obj['Key']
-                      
-                      with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as temp_input:
-                          s3_client.download_fileobj(input_bucket, input_key, temp_input)
-                          temp_input_path = temp_input.name
 
+                  # Get input file from event
+                  input_file = event.get('input_file')
+                  if not input_file:
+                      raise ValueError("No input_file provided in event")
+                  
+                  print(f"Processing input file: {input_file}")
+                  
+                  # Download input file
+                  with tempfile.NamedTemporaryFile(delete=False, suffix='.json') as temp_input:
+                      s3_client.download_file(input_bucket, input_file, temp_input.name)
+                      temp_input_path = temp_input.name
+
+                      # Print input data for debugging
                       input_data = load_input_data(temp_input_path)
+                      print("Input data:", json.dumps(input_data))
                       
                       for item in input_data:
                           word = item['word']
@@ -126,9 +132,19 @@ Resources:
                               'en-ZA': 'English_SouthAfrican',
                               'en-US': 'English_US'
                           }.items():
+                              # Print current iteration info for debugging
+                              print(f"Processing word: {word}, language: {lang_code}")
+                              
                               voices = polly_client.describe_voices(LanguageCode=lang_code)['Voices']
                               selected_voices = [voice['Name'] for voice in voices if voice['Gender'] in ['Female', 'Male']][:2]
+                              
+                              # Print selected voices for debugging
+                              print(f"Selected voices for {lang_code}: {selected_voices}")
+                              
                               for voice in selected_voices:
+                                  # Print parameters before calling generate_audio
+                                  print(f"Calling generate_audio with: text={word}, voice_id={voice}, lang_code={lang_code}")
+                                  
                                   audio_content = generate_audio(word, voice, lang_code, polly_client)
                                   if audio_content:
                                       filename = f"{word.replace(' ', '_')}_{lang_name}_{voice}.mp3"
@@ -140,18 +156,25 @@ Resources:
                                           Body=audio_content
                                       )
                                       generated_files.append(output_key)
+                                      print(f"Generated file: {output_key}")
 
                   return {
                       'statusCode': 200,
-                      'body': json.dumps({
+                      'body': {
                           'message': 'Audio generation completed',
                           'generated_files': generated_files
-                      })
+                      }
                   }
               except Exception as e:
+                  import traceback
+                  error_trace = traceback.format_exc()
+                  print(f"Error: {str(e)}\nTraceback: {error_trace}")
                   return {
                       'statusCode': 500,
-                      'body': json.dumps({'error': str(e)})
+                      'body': {
+                          'error': str(e),
+                          'traceback': error_trace
+                      }
                   }
       Environment:
         Variables:
@@ -177,46 +200,53 @@ Resources:
           import boto3
           import os
           import sys
-          import tempfile
+          from datetime import datetime
 
           sys.path.append('/opt/python')
           from offline.transcribe_audio import process_batch
 
           def lambda_handler(event, context):
               try:
-                  output_bucket = os.environ['OUTPUT_BUCKET']
-                  output_prefix = os.environ['OUTPUT_PREFIX']
-
-                  # Get S3 URIs from event
-                  event_body = json.loads(event.get('body', '{}'))
-                  s3_uris = event_body.get('s3_uris', [])
+                  # Get S3 URIs and retry flag from event
+                  s3_uris = event.get('s3_uris', [])
+                  is_retry = event.get('is_retry', False)
                   
                   if not s3_uris:
-                      raise Exception("No S3 URIs provided in the event")
-
-                  # Process the audio files using their S3 URIs
-                  transcription_results = process_batch(s3_uris)
-
-                  timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                  output_key = f"{output_prefix}transcription_results_{timestamp}.json"
-                  s3_client.put_object(
-                      Bucket=output_bucket,
-                      Key=output_key,
-                      Body=json.dumps(transcription_results, indent=2)
-                  )
-
+                      raise ValueError("No S3 URIs provided in event")
+                  
+                  # Print event for debugging
+                  print("Event:", json.dumps(event))
+                  print(f"Processing {len(s3_uris)} URIs, is_retry={is_retry}")
+                  
+                  # Ensure we don't process more than 10 files at once
+                  if len(s3_uris) > 10:
+                      print("Warning: More than 10 URIs provided, truncating to first 10")
+                      s3_uris = s3_uris[:10]
+                      
+                  # Process the batch of URIs
+                  results = process_batch(s3_uris, is_retry)
+                  
+                  # Print results for debugging
+                  print("Results:", json.dumps(results))
+                  
                   return {
                       'statusCode': 200,
-                      'body': json.dumps({
-                          'message': 'Transcription completed',
-                          'transcription_results_key': output_key,
-                          'timestamp': timestamp
-                      })
+                      'body': {
+                          'message': 'Transcription batch processed',
+                          'batch_id': results['timestamp'],
+                          'completed': results['completed'],
+                          'retryable_uris': results['retryable_uris']
+                      }
                   }
               except Exception as e:
+                  error_msg = str(e)
+                  print(f"Error processing batch: {error_msg}")
                   return {
                       'statusCode': 500,
-                      'body': json.dumps({'error': str(e)})
+                      'body': {
+                          'error': error_msg,
+                          'timestamp': datetime.now().strftime('%Y%m%d_%H%M%S')
+                      }
                   }
       Environment:
         Variables:
@@ -242,75 +272,42 @@ Resources:
           import boto3
           import os
           import sys
-          import tempfile
+          from datetime import datetime
 
           sys.path.append('/opt/python')
           from offline.process_transcriptions import process_transcriptions
 
           def lambda_handler(event, context):
-              s3_client = boto3.client('s3')
-              
               try:
-                  input_bucket = os.environ['INPUT_BUCKET']
-                  input_prefix = os.environ['INPUT_PREFIX']
+                  # Get environment variables
                   output_bucket = os.environ['OUTPUT_BUCKET']
                   output_prefix = os.environ['OUTPUT_PREFIX']
-
-                  # Get transcription file info from the event
-                  event_body = json.loads(event.get('body', '{}'))
-                  transcription_key = event_body.get('transcription_results_key')
                   
-                  if not transcription_key:
-                      raise Exception("No transcription_results_key provided in the event")
-                      
-                  local_transcription_path = '/tmp/transcription_results.json'
+                  # Get results from event with new structure
+                  transcription_results = event.get('transcription_results', {}).get('results', [])
+                  retry_results = event.get('retry_results', {}).get('results', [])
                   
-                  try:
-                      # Download the file
-                      s3_client.download_file(
-                          input_bucket,
-                          transcription_key,
-                          local_transcription_path
-                      )
-                  except s3_client.exceptions.ClientError as e:
-                      if e.response['Error']['Code'] == '404':
-                          raise Exception(f"Transcription file not found at {transcription_key}. Please ensure TranscribeAudioLambda has completed successfully.")
-                      else:
-                          raise Exception(f"Error accessing transcription file: {str(e)}")
-
-                  # Download input dictionary
-                  input_dict_path = '/tmp/input_dictionary.json'
-                  s3_client.download_file(
-                      input_bucket, 
-                      'input/dictionary.json', 
-                      input_dict_path
-                  )
-
                   # Process transcriptions
-                  output_key = f"{output_prefix}processed_transcriptions.json"
-                  process_transcriptions(input_dict_path, local_transcription_path, output_key)
-                  
-                  # Upload processed file to S3
-                  with open(output_key, 'r') as f:
-                      processed_data = f.read()
-                      
-                  s3_client.put_object(
-                      Bucket=output_bucket,
-                      Key=output_key,
-                      Body=processed_data
+                  result = process_transcriptions(
+                      transcription_results,
+                      retry_results,
+                      output_bucket,
+                      output_prefix
                   )
-
+                  
                   return {
                       'statusCode': 200,
-                      'body': json.dumps({
-                          'message': 'Dictionary generation completed',
-                          'variations_dict_key': output_key
-                      })
+                      'body': {
+                          'message': 'Processing completed',
+                          'result': result
+                      }
                   }
               except Exception as e:
                   return {
                       'statusCode': 500,
-                      'body': json.dumps({'error': str(e)})
+                      'body': {
+                          'error': str(e)
+                      }
                   }
       Environment:
         Variables:
@@ -348,58 +345,272 @@ Resources:
     Type: AWS::StepFunctions::StateMachine
     Properties:
       StateMachineName: !Sub ${ProjectName}-workflow
-      DefinitionString:
-        !Sub |
-          {
-            "Comment": "Voice Matching Workflow",
-            "StartAt": "AudioGeneration",
-            "TimeoutSeconds": 3600,
-            "States": {
-              "AudioGeneration": {
-                "Type": "Task",
-                "Resource": "${PollyAudioGeneratorLambda.Arn}",
-                "Next": "Transcription",
-                "ResultPath": "$.audio_generation_result",
-                "Retry": [
-                  {
-                    "ErrorEquals": ["States.ALL"],
-                    "IntervalSeconds": 2,
-                    "MaxAttempts": 3,
-                    "BackoffRate": 2.0
-                  }
-                ]
+      DefinitionString: !Sub |
+        {
+          "Comment": "Voice Matching Workflow",
+          "StartAt": "AudioGeneration",
+          "TimeoutSeconds": 3600,
+          "States": {
+            "AudioGeneration": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${PollyAudioGeneratorLambda.Arn}",
+                "Payload": {
+                  "input_file.$": "$.s3_input_file"
+                }
               },
-              "Transcription": {
-                "Type": "Task",
-                "Resource": "${TranscribeAudioLambda.Arn}",
-                "Next": "ProcessTranscriptions",
-                "ResultPath": "$.transcription_result",
-                "Retry": [
-                  {
-                    "ErrorEquals": ["States.ALL"],
-                    "IntervalSeconds": 2,
-                    "MaxAttempts": 3,
-                    "BackoffRate": 2.0
-                  }
-                ]
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "AudioGenerationFailed",
+                  "ResultPath": "$.error"
+                }
+              ],
+              "Next": "ChunkAudioFiles",
+              "ResultPath": "$.audio_generation_result"
+            },
+            "AudioGenerationFailed": {
+              "Type": "Fail",
+              "Cause": "Audio generation failed",
+              "Error": "AudioGenerationError"
+            },
+            "ChunkAudioFiles": {
+              "Type": "Pass",
+              "Parameters": {
+                "chunks.$": "States.ArrayPartition($.audio_generation_result.body.generated_files, 10)"
               },
-              "ProcessTranscriptions": {
-                "Type": "Task",
-                "Resource": "${ProcessTranscriptionsLambda.Arn}",
-                "End": true,
-                "InputPath": "$.transcription_result",
-                "ResultPath": "$.process_result",
-                "Retry": [
-                  {
-                    "ErrorEquals": ["States.ALL"],
-                    "IntervalSeconds": 2,
-                    "MaxAttempts": 3,
-                    "BackoffRate": 2.0
+              "Next": "TranscriptionMap"
+            },
+            "TranscriptionMap": {
+              "Type": "Map",
+              "MaxConcurrency": 25,
+              "ItemsPath": "$.chunks",
+              "ResultPath": "$.transcription_results",
+              "Iterator": {
+                "StartAt": "ProcessChunk",
+                "States": {
+                  "ProcessChunk": {
+                    "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TranscribeAudioLambda.Arn}",
+                      "Payload": {
+                        "s3_uris.$": "$$.Map.Item.Value"
+                      }
+                    },
+                    "Retry": [
+                      {
+                        "ErrorEquals": ["States.TaskFailed"],
+                        "IntervalSeconds": 30,
+                        "MaxAttempts": 3,
+                        "BackoffRate": 2.0
+                      }
+                    ],
+                    "Catch": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": "$.error",
+                        "Next": "HandleChunkError"
+                      }
+                    ],
+                    "Next": "CheckChunkResult"
+                  },
+                  "CheckChunkResult": {
+                    "Type": "Choice",
+                    "Choices": [
+                      {
+                        "Variable": "$.error",
+                        "IsPresent": true,
+                        "Next": "HandleChunkError"
+                      }
+                    ],
+                    "Default": "ChunkSuccess"
+                  },
+                  "HandleChunkError": {
+                    "Type": "Pass",
+                    "Parameters": {
+                      "statusCode": 200,
+                      "body": {
+                        "completed": {},
+                        "retryable_uris.$": "$$.Map.Item.Value"
+                      }
+                    },
+                    "End": true
+                  },
+                  "ChunkSuccess": {
+                    "Type": "Pass",
+                    "End": true
                   }
-                ]
-              }
+                }
+              },
+              "Next": "CheckRetries",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "TranscriptionMapFailed",
+                  "ResultPath": "$.error"
+                }
+              ]
+            },
+            "CheckRetries": {
+              "Type": "Pass",
+              "Parameters": {
+                "retries.$": "States.ArrayFlatten($.transcription_results[*].Payload.body.retryable_uris)"
+              },
+              "Next": "NeedRetry"
+            },
+            "NeedRetry": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.retries[0]",
+                  "IsPresent": true,
+                  "Next": "WaitBeforeRetry"
+                }
+              ],
+              "Default": "ProcessTranscriptions"
+            },
+            "WaitBeforeRetry": {
+              "Type": "Wait",
+              "Seconds": 30,
+              "Next": "RetryChunks"
+            },
+            "RetryChunks": {
+              "Type": "Pass",
+              "Parameters": {
+                "chunks.$": "States.ArrayPartition(States.Array($.retries), 10)"
+              },
+              "Next": "RetryMap"
+            },
+            "RetryMap": {
+              "Type": "Map",
+              "MaxConcurrency": 25,
+              "ItemsPath": "$.chunks",
+              "ResultPath": "$.retry_results",
+              "Iterator": {
+                "StartAt": "ProcessRetry",
+                "States": {
+                  "ProcessRetry": {
+                    "Type": "Task",
+                    "Resource": "${TranscribeAudioLambda.Arn}",
+                    "Parameters": {
+                      "FunctionName": "${TranscribeAudioLambda.Arn}",
+                      "Payload": {
+                        "s3_uris.$": "$$.Map.Item.Value",
+                        "is_retry": true
+                      }
+                    },
+                    "Retry": [
+                      {
+                        "ErrorEquals": ["States.TaskFailed"],
+                        "IntervalSeconds": 30,
+                        "MaxAttempts": 3,
+                        "BackoffRate": 2.0
+                      }
+                    ],
+                    "Catch": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": "$.error",
+                        "Next": "HandleRetryError"
+                      }
+                    ],
+                    "Next": "CheckRetryResult"
+                  },
+                  "CheckRetryResult": {
+                    "Type": "Choice",
+                    "Choices": [
+                      {
+                        "Variable": "$.error",
+                        "IsPresent": true,
+                        "Next": "HandleRetryError"
+                      }
+                    ],
+                    "Default": "RetrySuccess"
+                  },
+                  "HandleRetryError": {
+                    "Type": "Pass",
+                    "Parameters": {
+                      "statusCode": 200,
+                      "body": {
+                        "completed": {},
+                        "retryable_uris.$": "$$.Map.Item.Value"
+                      }
+                    },
+                    "End": true
+                  },
+                  "RetrySuccess": {
+                    "Type": "Pass",
+                    "End": true
+                  }
+                }
+              },
+              "Next": "CheckRetries",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "RetryMapFailed",
+                  "ResultPath": "$.error"
+                }
+              ]
+            },
+            "ProcessTranscriptions": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${ProcessTranscriptionsLambda.Arn}",
+                "Payload": {
+                  "transcription_results": {
+                    "results.$": "States.ArrayGetAll($.transcription_results[*].Payload)"
+                  },
+                  "retry_results": {
+                    "results.$": "States.ArrayGetAll($.retry_results[*].Payload)"
+                  }
+                }
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "ProcessTranscriptionsFailed",
+                  "ResultPath": "$.error"
+                }
+              ],
+              "End": true
+            },
+            "TranscriptionMapFailed": {
+              "Type": "Fail",
+              "Cause": "All transcription attempts failed",
+              "Error": "TranscriptionMapError"
+            },
+            "RetryMapFailed": {
+              "Type": "Fail",
+              "Cause": "All retry attempts failed",
+              "Error": "RetryMapError"
+            },
+            "ProcessTranscriptionsFailed": {
+              "Type": "Fail",
+              "Cause": "Processing transcriptions failed",
+              "Error": "ProcessingError"
             }
           }
+        }
       RoleArn: !GetAtt StepFunctionExecutionRole.Arn
 
   EventBridgeStepFunctionRole:
