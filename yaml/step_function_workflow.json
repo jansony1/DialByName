@@ -9,15 +9,24 @@
       "Parameters": {
         "FunctionName": "${PollyAudioGeneratorLambda.Arn}",
         "Payload": {
-          "input_file.$": "$.s3_input_file"
+          "input_file.$": "$.input_file"
         }
       },
+      "ResultSelector": {
+        "generated_files.$": "$.Payload.body.generated_files"
+      },
+      "ResultPath": "$.audio_generation",
       "Retry": [
         {
-          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
           "IntervalSeconds": 2,
-          "MaxAttempts": 3,
-          "BackoffRate": 2.0
+          "MaxAttempts": 6,
+          "BackoffRate": 2
         }
       ],
       "Catch": [
@@ -27,8 +36,7 @@
           "ResultPath": "$.error"
         }
       ],
-      "Next": "ChunkAudioFiles",
-      "ResultPath": "$.audio_generation_result"
+      "Next": "ChunkAudioFiles"
     },
     "AudioGenerationFailed": {
       "Type": "Fail",
@@ -38,7 +46,7 @@
     "ChunkAudioFiles": {
       "Type": "Pass",
       "Parameters": {
-        "chunks.$": "States.ArrayPartition($.audio_generation_result.body.generated_files, 10)"
+        "chunks.$": "States.ArrayPartition($.audio_generation.generated_files, 10)"
       },
       "Next": "TranscriptionMap"
     },
@@ -46,7 +54,9 @@
       "Type": "Map",
       "MaxConcurrency": 25,
       "ItemsPath": "$.chunks",
-      "ResultPath": "$.transcription_results",
+      "Parameters": {
+        "chunk.$": "$$.Map.Item.Value"
+      },
       "Iterator": {
         "StartAt": "ProcessChunk",
         "States": {
@@ -56,39 +66,38 @@
             "Parameters": {
               "FunctionName": "${TranscribeAudioLambda.Arn}",
               "Payload": {
-                "s3_uris.$": "$$.Map.Item.Value"
+                "s3_uris.$": "$.chunk"
               }
+            },
+            "ResultSelector": {
+              "completed.$": "$.Payload.body.completed",
+              "retryable_uris.$": "$.Payload.body.retryable_uris"
             },
             "Retry": [
               {
-                "ErrorEquals": ["States.TaskFailed"],
-                "IntervalSeconds": 30,
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException"
+                ],
+                "IntervalSeconds": 1,
                 "MaxAttempts": 3,
-                "BackoffRate": 2.0
+                "BackoffRate": 2
               }
             ],
             "End": true
           }
         }
       },
-      "Next": "CollectRetries",
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "TranscriptionMapFailed",
-          "ResultPath": "$.error"
-        }
-      ]
+      "ResultPath": "$.transcription_results",
+      "Next": "CollectResults"
     },
-    "TranscriptionMapFailed": {
-      "Type": "Fail",
-      "Cause": "All transcription attempts failed",
-      "Error": "TranscriptionMapError"
-    },
-    "CollectRetries": {
+    "CollectResults": {
       "Type": "Pass",
       "Parameters": {
-        "retryable_uris.$": "States.Array(States.ArrayUnique(States.ArrayFlatten($.transcription_results[*].Payload.body.retryable_uris)))"
+        "completed_transcriptions.$": "$.transcription_results[*].completed",
+        "retryable_uris.$": "$.transcription_results[*].retryable_uris"
       },
       "Next": "CheckRetries"
     },
@@ -96,12 +105,10 @@
       "Type": "Choice",
       "Choices": [
         {
-          "And": [
-            {
-              "Variable": "$.retryable_uris[0]",
-              "IsPresent": true
-            }
-          ],
+          "Not": {
+            "Variable": "$.retryable_uris",
+            "IsNull": true
+          },
           "Next": "WaitBeforeRetry"
         }
       ],
@@ -123,7 +130,10 @@
       "Type": "Map",
       "MaxConcurrency": 25,
       "ItemsPath": "$.chunks",
-      "ResultPath": "$.retry_results",
+      "Parameters": {
+        "chunk.$": "$$.Map.Item.Value",
+        "is_retry": true
+      },
       "Iterator": {
         "StartAt": "ProcessRetry",
         "States": {
@@ -133,35 +143,33 @@
             "Parameters": {
               "FunctionName": "${TranscribeAudioLambda.Arn}",
               "Payload": {
-                "s3_uris.$": "$$.Map.Item.Value",
-                "is_retry": true
+                "s3_uris.$": "$.chunk",
+                "is_retry.$": "$.is_retry"
               }
+            },
+            "ResultSelector": {
+              "completed.$": "$.Payload.body.completed",
+              "retryable_uris.$": "$.Payload.body.retryable_uris"
             },
             "Retry": [
               {
-                "ErrorEquals": ["States.TaskFailed"],
-                "IntervalSeconds": 30,
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException"
+                ],
+                "IntervalSeconds": 1,
                 "MaxAttempts": 3,
-                "BackoffRate": 2.0
+                "BackoffRate": 2
               }
             ],
             "End": true
           }
         }
       },
-      "Next": "CollectRetries",
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "Next": "RetryMapFailed",
-          "ResultPath": "$.error"
-        }
-      ]
-    },
-    "RetryMapFailed": {
-      "Type": "Fail",
-      "Cause": "All retry attempts failed",
-      "Error": "RetryMapError"
+      "ResultPath": "$.retry_results",
+      "Next": "CollectResults"
     },
     "ProcessTranscriptions": {
       "Type": "Task",
@@ -169,16 +177,25 @@
       "Parameters": {
         "FunctionName": "${ProcessTranscriptionsLambda.Arn}",
         "Payload": {
-          "transcription_results.$": "$.transcription_results",
-          "retry_results.$": "$.retry_results"
+          "completed_transcriptions.$": "$.completed_transcriptions",
+          "retryable_uris.$": "$.retryable_uris"
         }
       },
+      "ResultSelector": {
+        "result.$": "$.Payload.body.result"
+      },
+      "ResultPath": "$.final_result",
       "Retry": [
         {
-          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
-          "IntervalSeconds": 2,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 1,
           "MaxAttempts": 3,
-          "BackoffRate": 2.0
+          "BackoffRate": 2
         }
       ],
       "Catch": [
