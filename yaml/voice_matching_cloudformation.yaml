@@ -464,7 +464,9 @@ Resources:
             "CheckRetries": {
               "Type": "Pass",
               "Parameters": {
-                "retries.$": "States.ArrayFlatten($.transcription_results[*].Payload.body.retryable_uris)"
+                "retries": {
+                  "uris.$": "States.ArrayFlatten($.transcription_results[*].Payload.body.retryable_uris)"
+                }
               },
               "Next": "NeedRetry"
             },
@@ -472,7 +474,7 @@ Resources:
               "Type": "Choice",
               "Choices": [
                 {
-                  "Variable": "$.retries[0]",
+                  "Variable": "$.retries.uris[0]",
                   "IsPresent": true,
                   "Next": "WaitBeforeRetry"
                 }
@@ -487,7 +489,7 @@ Resources:
             "RetryChunks": {
               "Type": "Pass",
               "Parameters": {
-                "chunks.$": "States.ArrayPartition(States.Array($.retries), 10)"
+                "chunks.$": "States.ArrayPartition(States.Array($.retries.uris), 10)"
               },
               "Next": "RetryMap"
             },
@@ -569,12 +571,8 @@ Resources:
               "Parameters": {
                 "FunctionName": "${ProcessTranscriptionsLambda.Arn}",
                 "Payload": {
-                  "transcription_results": {
-                    "results.$": "States.ArrayGetAll($.transcription_results[*].Payload)"
-                  },
-                  "retry_results": {
-                    "results.$": "States.ArrayGetAll($.retry_results[*].Payload)"
-                  }
+                  "transcription_results.$": "$.transcription_results[*].Payload",
+                  "retry_results.$": "$.retry_results[*].Payload"
                 }
               },
               "Retry": [

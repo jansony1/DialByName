@@ -1,265 +1,175 @@
 {
-    "Comment": "Voice Matching Workflow",
-    "StartAt": "AudioGeneration",
-    "TimeoutSeconds": 3600,
-    "States": {
-        "AudioGeneration": {
+  "Comment": "Voice Matching Workflow",
+  "StartAt": "AudioGeneration",
+  "TimeoutSeconds": 3600,
+  "States": {
+    "AudioGeneration": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${PollyAudioGeneratorLambda.Arn}",
+        "Payload": {
+          "input_file.$": "$.s3_input_file"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "AudioGenerationFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "ChunkAudioFiles",
+      "ResultPath": "$.audio_generation_result"
+    },
+    "AudioGenerationFailed": {
+      "Type": "Fail",
+      "Cause": "Audio generation failed",
+      "Error": "AudioGenerationError"
+    },
+    "ChunkAudioFiles": {
+      "Type": "Pass",
+      "Parameters": {
+        "chunks.$": "States.ArrayPartition($.audio_generation_result.body.generated_files, 10)"
+      },
+      "Next": "TranscriptionMap"
+    },
+    "TranscriptionMap": {
+      "Type": "Map",
+      "MaxConcurrency": 25,
+      "ItemsPath": "$.chunks",
+      "ResultPath": "$.transcription_results",
+      "Iterator": {
+        "StartAt": "ProcessChunk",
+        "States": {
+          "ProcessChunk": {
             "Type": "Task",
             "Resource": "arn:aws:states:::lambda:invoke",
             "Parameters": {
-                "FunctionName": "polly-audio-generator-lambda",
-                "Payload": {
-                    "input_file.$": "$.s3_input_file"
-                }
+              "FunctionName": "${TranscribeAudioLambda.Arn}",
+              "Payload": {
+                "s3_uris.$": "$$.Map.Item.Value"
+              }
             },
             "Retry": [
-                {
-                    "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
-                    "IntervalSeconds": 2,
-                    "MaxAttempts": 3,
-                    "BackoffRate": 2.0
-                }
-            ],
-            "Catch": [
-                {
-                    "ErrorEquals": ["States.ALL"],
-                    "Next": "AudioGenerationFailed",
-                    "ResultPath": "$.error"
-                }
-            ],
-            "Next": "ChunkAudioFiles",
-            "ResultPath": "$.audio_generation_result"
-        },
-        "AudioGenerationFailed": {
-            "Type": "Fail",
-            "Cause": "Audio generation failed",
-            "Error": "AudioGenerationError"
-        },
-        "ChunkAudioFiles": {
-            "Type": "Pass",
-            "Parameters": {
-                "chunks.$": "States.ArrayPartition($.audio_generation_result.body.generated_files, 10)"
-            },
-            "Next": "TranscriptionMap"
-        },
-        "TranscriptionMap": {
-            "Type": "Map",
-            "MaxConcurrency": 25,
-            "ItemsPath": "$.chunks",
-            "ResultPath": "$.transcription_results",
-            "Iterator": {
-                "StartAt": "ProcessChunk",
-                "States": {
-                    "ProcessChunk": {
-                        "Type": "Task",
-                        "Resource": "arn:aws:states:::lambda:invoke",
-                        "Parameters": {
-                            "FunctionName": "transcribe-audio-lambda",
-                            "Payload": {
-                                "s3_uris.$": "$$.Map.Item.Value"
-                            }
-                        },
-                        "Retry": [
-                            {
-                                "ErrorEquals": ["States.TaskFailed"],
-                                "IntervalSeconds": 30,
-                                "MaxAttempts": 3,
-                                "BackoffRate": 2.0
-                            }
-                        ],
-                        "Catch": [
-                            {
-                                "ErrorEquals": ["States.ALL"],
-                                "ResultPath": "$.error",
-                                "Next": "HandleChunkError"
-                            }
-                        ],
-                        "Next": "CheckChunkResult"
-                    },
-                    "CheckChunkResult": {
-                        "Type": "Choice",
-                        "Choices": [
-                            {
-                                "Variable": "$.error",
-                                "IsPresent": true,
-                                "Next": "HandleChunkError"
-                            }
-                        ],
-                        "Default": "ChunkSuccess"
-                    },
-                    "HandleChunkError": {
-                        "Type": "Pass",
-                        "Parameters": {
-                            "statusCode": 200,
-                            "body": {
-                                "completed": {},
-                                "retryable_uris.$": "$$.Map.Item.Value"
-                            }
-                        },
-                        "End": true
-                    },
-                    "ChunkSuccess": {
-                        "Type": "Pass",
-                        "End": true
-                    }
-                }
-            },
-            "Next": "CheckRetries",
-            "Catch": [
-                {
-                    "ErrorEquals": ["States.ALL"],
-                    "Next": "TranscriptionMapFailed",
-                    "ResultPath": "$.error"
-                }
-            ]
-        },
-        "CheckRetries": {
-            "Type": "Pass",
-            "Parameters": {
-                "retries.$": "States.ArrayFlatten($.transcription_results[*].Payload.body.retryable_uris)"
-            },
-            "Next": "NeedRetry"
-        },
-        "NeedRetry": {
-            "Type": "Choice",
-            "Choices": [
-                {
-                    "Variable": "$.retries[0]",
-                    "IsPresent": true,
-                    "Next": "WaitBeforeRetry"
-                }
-            ],
-            "Default": "ProcessTranscriptions"
-        },
-        "WaitBeforeRetry": {
-            "Type": "Wait",
-            "Seconds": 30,
-            "Next": "RetryChunks"
-        },
-        "RetryChunks": {
-            "Type": "Pass",
-            "Parameters": {
-                "chunks.$": "States.ArrayPartition(States.Array($.retries), 10)"
-            },
-            "Next": "RetryMap"
-        },
-        "RetryMap": {
-            "Type": "Map",
-            "MaxConcurrency": 25,
-            "ItemsPath": "$.chunks",
-            "ResultPath": "$.retry_results",
-            "Iterator": {
-                "StartAt": "ProcessRetry",
-                "States": {
-                    "ProcessRetry": {
-                        "Type": "Task",
-                        "Resource": "arn:aws:states:::lambda:invoke",
-                        "Parameters": {
-                            "FunctionName": "transcribe-audio-lambda",
-                            "Payload": {
-                                "s3_uris.$": "$$.Map.Item.Value",
-                                "is_retry": true
-                            }
-                        },
-                        "Retry": [
-                            {
-                                "ErrorEquals": ["States.TaskFailed"],
-                                "IntervalSeconds": 30,
-                                "MaxAttempts": 3,
-                                "BackoffRate": 2.0
-                            }
-                        ],
-                        "Catch": [
-                            {
-                                "ErrorEquals": ["States.ALL"],
-                                "ResultPath": "$.error",
-                                "Next": "HandleRetryError"
-                            }
-                        ],
-                        "Next": "CheckRetryResult"
-                    },
-                    "CheckRetryResult": {
-                        "Type": "Choice",
-                        "Choices": [
-                            {
-                                "Variable": "$.error",
-                                "IsPresent": true,
-                                "Next": "HandleRetryError"
-                            }
-                        ],
-                        "Default": "RetrySuccess"
-                    },
-                    "HandleRetryError": {
-                        "Type": "Pass",
-                        "Parameters": {
-                            "statusCode": 200,
-                            "body": {
-                                "completed": {},
-                                "retryable_uris.$": "$$.Map.Item.Value"
-                            }
-                        },
-                        "End": true
-                    },
-                    "RetrySuccess": {
-                        "Type": "Pass",
-                        "End": true
-                    }
-                }
-            },
-            "Next": "CheckRetries",
-            "Catch": [
-                {
-                    "ErrorEquals": ["States.ALL"],
-                    "Next": "RetryMapFailed",
-                    "ResultPath": "$.error"
-                }
-            ]
-        },
-        "ProcessTranscriptions": {
-            "Type": "Task",
-            "Resource": "arn:aws:states:::lambda:invoke",
-            "Parameters": {
-                "FunctionName": "process-transcriptions-lambda",
-                "Payload": {
-                    "transcription_results": {
-                        "results.$": "States.ArrayGetAll($.transcription_results[*].Payload)"
-                    },
-                    "retry_results": {
-                        "results.$": "States.ArrayGetAll($.retry_results[*].Payload)"
-                    }
-                }
-            },
-            "Retry": [
-                {
-                    "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
-                    "IntervalSeconds": 2,
-                    "MaxAttempts": 3,
-                    "BackoffRate": 2.0
-                }
-            ],
-            "Catch": [
-                {
-                    "ErrorEquals": ["States.ALL"],
-                    "Next": "ProcessTranscriptionsFailed",
-                    "ResultPath": "$.error"
-                }
+              {
+                "ErrorEquals": ["States.TaskFailed"],
+                "IntervalSeconds": 30,
+                "MaxAttempts": 3,
+                "BackoffRate": 2.0
+              }
             ],
             "End": true
-        },
-        "TranscriptionMapFailed": {
-            "Type": "Fail",
-            "Cause": "All transcription attempts failed",
-            "Error": "TranscriptionMapError"
-        },
-        "RetryMapFailed": {
-            "Type": "Fail",
-            "Cause": "All retry attempts failed",
-            "Error": "RetryMapError"
-        },
-        "ProcessTranscriptionsFailed": {
-            "Type": "Fail",
-            "Cause": "Processing transcriptions failed",
-            "Error": "ProcessingError"
+          }
         }
+      },
+      "Next": "CollectRetries"
+    },
+    "CollectRetries": {
+      "Type": "Pass",
+      "Parameters": {
+        "retryable_uris.$": "States.Array(States.ArrayUnique(States.ArrayFlatten($.transcription_results[*].Payload.body.retryable_uris)))"
+      },
+      "Next": "CheckRetries"
+    },
+    "CheckRetries": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.retryable_uris[0]",
+              "IsPresent": true
+            }
+          ],
+          "Next": "WaitBeforeRetry"
+        }
+      ],
+      "Default": "ProcessTranscriptions"
+    },
+    "WaitBeforeRetry": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "PrepareRetryBatches"
+    },
+    "PrepareRetryBatches": {
+      "Type": "Pass",
+      "Parameters": {
+        "chunks.$": "States.ArrayPartition($.retryable_uris, 10)"
+      },
+      "Next": "RetryMap"
+    },
+    "RetryMap": {
+      "Type": "Map",
+      "MaxConcurrency": 25,
+      "ItemsPath": "$.chunks",
+      "ResultPath": "$.retry_results",
+      "Iterator": {
+        "StartAt": "ProcessRetry",
+        "States": {
+          "ProcessRetry": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${TranscribeAudioLambda.Arn}",
+              "Payload": {
+                "s3_uris.$": "$$.Map.Item.Value",
+                "is_retry": true
+              }
+            },
+            "Retry": [
+              {
+                "ErrorEquals": ["States.TaskFailed"],
+                "IntervalSeconds": 30,
+                "MaxAttempts": 3,
+                "BackoffRate": 2.0
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "Next": "CollectRetries"
+    },
+    "ProcessTranscriptions": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ProcessTranscriptionsLambda.Arn}",
+        "Payload": {
+          "transcription_results.$": "$.transcription_results",
+          "retry_results.$": "$.retry_results"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ProcessTranscriptionsFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "End": true
+    },
+    "ProcessTranscriptionsFailed": {
+      "Type": "Fail",
+      "Cause": "Processing transcriptions failed",
+      "Error": "ProcessingError"
     }
+  }
 }
