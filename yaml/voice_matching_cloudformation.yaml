@@ -183,30 +183,19 @@ Resources:
           from offline.transcribe_audio import process_batch
 
           def lambda_handler(event, context):
-              s3_client = boto3.client('s3')
-              
               try:
-                  input_bucket = os.environ['INPUT_BUCKET']
-                  input_prefix = os.environ['INPUT_PREFIX']
                   output_bucket = os.environ['OUTPUT_BUCKET']
                   output_prefix = os.environ['OUTPUT_PREFIX']
 
-                  input_files = s3_client.list_objects_v2(
-                      Bucket=input_bucket, 
-                      Prefix=input_prefix
-                  )['Contents']
+                  # Get S3 URIs from event
+                  event_body = json.loads(event.get('body', '{}'))
+                  s3_uris = event_body.get('s3_uris', [])
+                  
+                  if not s3_uris:
+                      raise Exception("No S3 URIs provided in the event")
 
-                  audio_files = [
-                      os.path.join('/tmp', os.path.basename(file_obj['Key']))
-                      for file_obj in input_files
-                  ]
-
-                  for file_obj in input_files:
-                      input_key = file_obj['Key']
-                      local_path = os.path.join('/tmp', os.path.basename(input_key))
-                      s3_client.download_file(input_bucket, input_key, local_path)
-
-                  transcription_results = process_batch(audio_files)
+                  # Process the audio files using their S3 URIs
+                  transcription_results = process_batch(s3_uris)
 
                   timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                   output_key = f"{output_prefix}transcription_results_{timestamp}.json"

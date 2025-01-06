@@ -23,6 +23,10 @@ A serverless voice generation and processing system using AWS services, designed
 2. **Transcription**
    - Input: Generated audio files
    - Process: Convert audio to text using Amazon Transcribe
+   - Handles AWS Transcribe's 250 concurrent jobs limit:
+     - Processes files in batches of 10
+     - Automatically retries failed tasks due to concurrency limits
+     - Smart retry mechanism with 30-second intervals
    - Outputs: Transcription results
 
 3. **Dictionary Processing**
@@ -127,9 +131,40 @@ Please ensure your target s3 eventbrigde notification was configured to **on**
   - Update S3 bucket settings
 
 ## Error Handling
-- Retry mechanisms in Step Function
-- Comprehensive error logging
+
+### Retry Mechanisms
+1. **Transcribe Concurrency Management**
+   - Handles AWS Transcribe's 250 concurrent jobs limit
+   - Batches of 10 files per Lambda invocation
+   - Automatic identification of concurrency-related failures
+   - Smart retry system for failed tasks
+
+2. **Step Function Workflow**
+   - Identifies tasks that need retry
+   - 30-second wait period between retries
+   - Separate processing paths for initial attempts and retries
+   - Clear distinction between temporary failures (retryable) and permanent errors
+
+3. **Lambda Function**
+   - Returns detailed status for each task:
+     - Successfully completed transcriptions
+     - Tasks that need retry due to concurrency limits
+   - Prevents infinite retry loops
+   - Comprehensive error logging
+
+### Error Types
+1. **Retryable Errors**
+   - Concurrent limit exceeded
+   - Temporary service unavailability
+   - Network timeouts
+
+2. **Permanent Errors**
+   - Invalid audio format
+   - Corrupted files
+   - Authorization failures
+
 - Maximum workflow timeout: 1 hour
+- Comprehensive CloudWatch logging
 
 ## Monitoring
 - CloudWatch logs for Lambda functions
@@ -143,8 +178,12 @@ Please ensure your target s3 eventbrigde notification was configured to **on**
 
 ## Scalability
 - Serverless architecture
-- Parallel processing in transcription stage
+- Smart parallel processing in transcription stage:
+  - Automatic batch processing (10 files per batch)
+  - Intelligent concurrency management
+  - Dynamic retry mechanism
 - Configurable Lambda function resources
+- Optimized for AWS Transcribe's service limits
 
 ## Troubleshooting
 

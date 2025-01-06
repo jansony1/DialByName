@@ -1,91 +1,120 @@
 import json
-import glob
+import boto3
 import os
 from collections import defaultdict
 from datetime import datetime
+from typing import Dict, List, Any
 
-def get_prefix_before_english(filename):
-    # Split by "_English" and take the part before it
+def get_prefix_before_english(filename: str) -> str:
+    """Extract the word prefix from the filename"""
     parts = filename.split("_English")
     if parts:
         return parts[0]
     return filename
 
-def get_closest_transcription_file():
-    # Get all files matching the pattern
-    pattern = "transcription_results_*.json"
-    files = glob.glob(pattern)
-    print(f"Looking for files matching pattern: {pattern}")
-    print(f"Found files: {files}")
+def process_results(results: List[Dict[str, Any]], successful_dict: defaultdict) -> List[str]:
+    """Process a batch of results and return failed files"""
+    failed_files = []
     
-    if not files:
-        # Try listing directory contents
-        print("No files found with glob, listing directory contents:")
-        print(os.listdir('.'))
-        raise Exception("No transcription results files found")
-    
-    # Get current timestamp
-    current_time = datetime.now()
-    print(f"Current time: {current_time}")
-    
-    # Parse timestamps from filenames and find closest
-    closest_file = None
-    smallest_diff = float('inf')
-    
-    for file in files:
-        try:
-            # Extract timestamp from filename (format: transcription_results_YYYYMMDD_HHMMSS.json)
-            timestamp_str = '_'.join(file.replace('.json', '').split('_')[2:])  # Get YYYYMMDD_HHMMSS part
-            print(f"Processing file {file}, timestamp string: {timestamp_str}")
-            file_time = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
+    if not results:
+        return failed_files
+        
+    for result in results:
+        if 'body' in result:
+            # Process successful transcriptions
+            if 'completed' in result['body']:
+                for filename, transcription in result['body']['completed'].items():
+                    prefix = get_prefix_before_english(filename)
+                    successful_dict[prefix].add(transcription)
             
-            # Calculate time difference
-            time_diff = abs((current_time - file_time).total_seconds())
-            print(f"Time difference: {time_diff} seconds")
-            
-            if time_diff < smallest_diff:
-                smallest_diff = time_diff
-                closest_file = file
-                print(f"New closest file: {file}")
-        except (IndexError, ValueError) as e:
-            print(f"Error processing file {file}: {str(e)}")
-            continue
-    
-    if not closest_file:
-        raise Exception("No valid transcription results files found")
-    
-    print(f"Selected closest transcription file: {closest_file}")
-    return closest_file
+            # Collect failed files
+            if 'retryable_uris' in result['body']:
+                failed_files.extend(result['body']['retryable_uris'])
+                
+    return failed_files
 
-def process_transcriptions(output_file):
-    # Get the closest transcription results file
-    input_file = get_closest_transcription_file()
-    print(f"Processing transcriptions from: {input_file}")
+def process_transcriptions(transcription_results: List[Dict], retry_results: List[Dict], 
+                         output_bucket: str, output_prefix: str) -> Dict[str, Any]:
+    """Process transcription results and generate success/failure files"""
     
-    # Read the input JSON file
-    with open(input_file, 'r') as f:
-        data = json.load(f)
+    # Create dictionary for successful transcriptions
+    successful_dict = defaultdict(set)
+    failed_files = []
     
-    # Create a defaultdict to group transcriptions by prefix
-    grouped_data = defaultdict(set)
+    # Process both initial and retry results
+    failed_files.extend(process_results(transcription_results, successful_dict))
+    failed_files.extend(process_results(retry_results, successful_dict))
     
-    # Process each item in the input data
-    for filename, transcription in data.items():
-        prefix = get_prefix_before_english(filename)
-        # Only add non-failed transcriptions
-        if isinstance(transcription, str) and not transcription.startswith("Transcription failed") and not transcription.startswith("Failed to"):
-            grouped_data[prefix].add(transcription)
+    # Remove duplicates from failed files
+    failed_files = list(set(failed_files))
     
-    # Convert sets to lists for JSON serialization
-    result = {prefix: list(transcriptions) for prefix, transcriptions in grouped_data.items()}
+    # Convert successful_dict sets to lists for JSON serialization
+    successful_dict = {prefix: list(transcriptions) 
+                      for prefix, transcriptions in successful_dict.items()}
     
-    # Write the result to the output file
-    with open(output_file, 'w') as f:
-        json.dump(result, f, indent=2, ensure_ascii=False)
-    
-    print(f"Grouped transcriptions saved to: {output_file}")
-
-if __name__ == "__main__":
+    # Generate timestamps for filenames
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_file = f"grouped_transcriptions_{timestamp}.json"
-    process_transcriptions(output_file)
+    
+    # Save successful transcriptions
+    success_key = f"{output_prefix}successful_transcriptions_{timestamp}.json"
+    s3_client = boto3.client('s3')
+    s3_client.put_object(
+        Bucket=output_bucket,
+        Key=success_key,
+        Body=json.dumps(successful_dict, indent=2, ensure_ascii=False)
+    )
+    
+    # Save failed files list
+    failed_key = f"{output_prefix}failed_files_{timestamp}.json"
+    s3_client.put_object(
+        Bucket=output_bucket,
+        Key=failed_key,
+        Body=json.dumps({
+            'failed_files': failed_files,
+            'count': len(failed_files)
+        }, indent=2)
+    )
+    
+    return {
+        'successful_file': success_key,
+        'failed_file': failed_key,
+        'summary': {
+            'successful_words': sum(len(transcriptions) 
+                                  for transcriptions in successful_dict.values()),
+            'failed_files': len(failed_files)
+        }
+    }
+
+def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """AWS Lambda handler function"""
+    try:
+        # Get environment variables
+        output_bucket = os.environ['OUTPUT_BUCKET']
+        output_prefix = os.environ['OUTPUT_PREFIX']
+        
+        # Get results from event with new structure
+        transcription_results = event.get('transcription_results', {}).get('results', [])
+        retry_results = event.get('retry_results', {}).get('results', [])
+        
+        # Process transcriptions
+        result = process_transcriptions(
+            transcription_results,
+            retry_results,
+            output_bucket,
+            output_prefix
+        )
+        
+        return {
+            'statusCode': 200,
+            'body': {
+                'message': 'Processing completed',
+                'result': result
+            }
+        }
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'body': {
+                'error': str(e)
+            }
+        }
