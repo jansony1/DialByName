@@ -124,15 +124,15 @@ def process_batch(s3_uris: List[str], is_retry: bool = False) -> Dict[str, Any]:
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """AWS Lambda handler function"""
     try:
-        # Get S3 URIs and retry flag from event
-        s3_uris = event.get('s3_uris', [])
+        # Get chunk and retry flag from event
+        chunk = event.get('chunk', [])
         is_retry = event.get('is_retry', False)
         
-        if not s3_uris:
-            raise ValueError("No S3 URIs provided in event")
+        if not chunk:
+            raise ValueError("No chunk data provided in event")
             
         # Process the batch of URIs
-        results = process_batch(s3_uris, is_retry)
+        results = process_batch(chunk, is_retry)
         
         return {
             'statusCode': 200,

@@ -211,26 +211,25 @@ Resources:
 
           def lambda_handler(event, context):
               try:
-                  # Get S3 URIs and retry flag from event
-                  s3_uris = event.get('s3_uris', [])
+                  # Get S3 URIs from event
+                  chunk = event.get('chunk', [])
                   is_retry = event.get('is_retry', False)
                   
-                  if not s3_uris:
-                      raise ValueError("No S3 URIs provided in event")
+                  if not chunk:
+                      raise ValueError("No chunk data provided in event")
                   
                   # Print event for debugging
                   print("Event:", json.dumps(event))
+                  print("Processing chunk:", chunk)
               
                   # Process the batch of URIs and print results
-                  results = process_batch(s3_uris, is_retry)
+                  results = process_batch(chunk, is_retry)
                   print(f"Results: {json.dumps(results)}")
                   
                   return {
                       'statusCode': 200,
                       'body': {
-                          'message': 'Transcription batch processed',
-                          'batch_id': results['timestamp'],
-                          'completed': results['completed'],
+                          'completed_transcriptions': results['completed'],
                           'retryable_uris': results['retryable_uris']
                       }
                   }
@@ -240,8 +239,9 @@ Resources:
                   return {
                       'statusCode': 500,
                       'body': {
-                          'error': error_msg,
-                          'timestamp': datetime.now().strftime('%Y%m%d_%H%M%S')
+                          'completed_transcriptions': [],
+                          'retryable_uris': [],
+                          'error': error_msg
                       }
                   }
       Environment:
@@ -279,9 +279,9 @@ Resources:
                   output_bucket = os.environ['OUTPUT_BUCKET']
                   output_prefix = os.environ['OUTPUT_PREFIX']
                   
-                  # Get results from event with new structure
-                  transcription_results = event.get('transcription_results', {}).get('results', [])
-                  retry_results = event.get('retry_results', {}).get('results', [])
+                  # Get results from event
+                  transcription_results = event.get('transcription_results', [])
+                  retry_results = event.get('retry_results', [])
                   
                   # Process transcriptions
                   result = process_transcriptions(
@@ -369,7 +369,7 @@ Resources:
                     "Lambda.TooManyRequestsException"
                   ],
                   "IntervalSeconds": 2,
-                  "MaxAttempts": 6,
+                  "MaxAttempts": 1,
                   "BackoffRate": 2
                 }
               ],
@@ -410,12 +410,8 @@ Resources:
                     "Parameters": {
                       "FunctionName": "${TranscribeAudioLambda.Arn}",
                       "Payload": {
-                        "s3_uris.$": "$.chunk"
+                        "chunk.$": "$.chunk"
                       }
-                    },
-                    "ResultSelector": {
-                      "completed.$": "$.Payload.body.completed",
-                      "retryable_uris.$": "$.Payload.body.retryable_uris"
                     },
                     "Retry": [
                       {
@@ -426,7 +422,7 @@ Resources:
                           "Lambda.TooManyRequestsException"
                         ],
                         "IntervalSeconds": 1,
-                        "MaxAttempts": 3,
+                        "MaxAttempts": 1,
                         "BackoffRate": 2
                       }
                     ],
@@ -440,8 +436,9 @@ Resources:
             "CollectResults": {
               "Type": "Pass",
               "Parameters": {
-                "completed_transcriptions.$": "States.ArrayFlatten($.transcription_results[*].Payload.body.completed)",
-                "retryable_uris.$": "States.ArrayFlatten($.transcription_results[*].Payload.body.retryable_uris)"
+                "completed_transcriptions.$": "States.Array($.transcription_results[*].Payload.body.completed_transcriptions)",
+                "retryable_uris.$": "States.Array($.transcription_results[*].Payload.body.retryable_uris)",
+                "has_retries.$": "States.Not(States.IsNull(States.Array($.transcription_results[*].Payload.body.retryable_uris)[0]))"
               },
               "Next": "CheckRetries"
             },
@@ -449,10 +446,8 @@ Resources:
               "Type": "Choice",
               "Choices": [
                 {
-                  "Not": {
-                    "Variable": "$.retryable_uris",
-                    "IsNull": true
-                  },
+                  "Variable": "$.has_retries",
+                  "BooleanEquals": true,
                   "Next": "WaitBeforeRetry"
                 }
               ],
@@ -475,7 +470,7 @@ Resources:
               "MaxConcurrency": 25,
               "ItemsPath": "$.chunks",
               "Parameters": {
-                "s3_uris.$": "$$.Map.Item.Value",
+                "chunk.$": "$$.Map.Item.Value",
                 "is_retry": true
               },
               "Iterator": {
@@ -487,13 +482,9 @@ Resources:
                     "Parameters": {
                       "FunctionName": "${TranscribeAudioLambda.Arn}",
                       "Payload": {
-                        "s3_uris.$": "$.s3_uris",
+                        "chunk.$": "$.chunk",
                         "is_retry.$": "$.is_retry"
                       }
-                    },
-                    "ResultSelector": {
-                      "completed.$": "$.Payload.body.completed",
-                      "retryable_uris.$": "$.Payload.body.retryable_uris"
                     },
                     "Retry": [
                       {
@@ -504,7 +495,7 @@ Resources:
                           "Lambda.TooManyRequestsException"
                         ],
                         "IntervalSeconds": 1,
-                        "MaxAttempts": 3,
+                        "MaxAttempts": 1,
                         "BackoffRate": 2
                       }
                     ],
@@ -521,8 +512,8 @@ Resources:
               "Parameters": {
                 "FunctionName": "${ProcessTranscriptionsLambda.Arn}",
                 "Payload": {
-                  "completed_transcriptions.$": "$.completed_transcriptions",
-                  "retryable_uris.$": "$.retryable_uris"
+                  "transcription_results.$": "States.Array($.completed_transcriptions)",
+                  "retry_results.$": "States.Array($.retryable_uris)"
                 }
               },
               "ResultSelector": {
@@ -538,7 +529,7 @@ Resources:
                     "Lambda.TooManyRequestsException"
                   ],
                   "IntervalSeconds": 1,
-                  "MaxAttempts": 3,
+                  "MaxAttempts": 1,
                   "BackoffRate": 2
                 }
               ],
