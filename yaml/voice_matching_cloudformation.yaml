@@ -109,7 +109,11 @@ Resources:
                   # Get input file from event
                   input_file = event.get('input_file')
                   if not input_file:
-                      raise ValueError("No input_file provided in event")
+                      # Try to get from S3 event
+                      if 'detail' in event and 'object' in event['detail']:
+                          input_file = event['detail']['object']['key']
+                      if not input_file:
+                          raise ValueError("No input_file provided in event")
                   
                   print(f"Processing input file: {input_file}")
                   
@@ -357,7 +361,7 @@ Resources:
               "Parameters": {
                 "FunctionName": "${PollyAudioGeneratorLambda.Arn}",
                 "Payload": {
-                  "input_file.$": "$.input_file"
+                  "input_file.$": "$.detail.object.key"
                 }
               },
               "ResultSelector": {

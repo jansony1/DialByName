@@ -7,7 +7,7 @@ from datetime import datetime
 from multiprocessing import cpu_count
 from botocore.exceptions import BotoCoreError, ClientError
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 
 # Initialize the S3 and Transcribe clients
 s3_client = boto3.client('s3', region_name='us-west-2')
