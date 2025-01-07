@@ -74,8 +74,22 @@ def process_batch(s3_uris: List[str], is_retry: bool = False) -> Dict[str, Any]:
         'timestamp': datetime.now().strftime('%Y%m%d_%H%M%S')
     }
     
+    # Ensure s3_uris is a list of strings
+    if not s3_uris:
+        return results
+        
+    # Print debug info
+    print(f"Processing s3_uris: {s3_uris}, type: {type(s3_uris)}")
+    
     # Extract filenames from S3 URIs
-    file_infos = [(os.path.basename(uri), uri) for uri in s3_uris]
+    file_infos = []
+    for uri in s3_uris:
+        try:
+            filename = os.path.basename(uri)
+            file_infos.append((filename, uri))
+        except Exception as e:
+            print(f"Error processing URI {uri}: {str(e)}")
+            continue
     
     # Start transcription jobs in parallel
     with ThreadPoolExecutor(max_workers=10) as executor:

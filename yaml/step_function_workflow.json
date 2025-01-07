@@ -9,7 +9,7 @@
       "Parameters": {
         "FunctionName": "${PollyAudioGeneratorLambda.Arn}",
         "Payload": {
-          "input_file.$": "$.input_file"
+          "input_file.$": "$.detail.object.key"
         }
       },
       "ResultSelector": {

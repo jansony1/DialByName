@@ -220,18 +220,10 @@ Resources:
                   
                   # Print event for debugging
                   print("Event:", json.dumps(event))
-                  print(f"Processing {len(s3_uris)} URIs, is_retry={is_retry}")
-                  
-                  # Ensure we don't process more than 10 files at once
-                  if len(s3_uris) > 10:
-                      print("Warning: More than 10 URIs provided, truncating to first 10")
-                      s3_uris = s3_uris[:10]
-                      
-                  # Process the batch of URIs
+              
+                  # Process the batch of URIs and print results
                   results = process_batch(s3_uris, is_retry)
-                  
-                  # Print results for debugging
-                  print("Results:", json.dumps(results))
+                  print(f"Results: {json.dumps(results)}")
                   
                   return {
                       'statusCode': 200,
@@ -448,8 +440,8 @@ Resources:
             "CollectResults": {
               "Type": "Pass",
               "Parameters": {
-                "completed_transcriptions.$": "$.transcription_results[*].completed",
-                "retryable_uris.$": "$.transcription_results[*].retryable_uris"
+                "completed_transcriptions.$": "States.ArrayFlatten($.transcription_results[*].Payload.body.completed)",
+                "retryable_uris.$": "States.ArrayFlatten($.transcription_results[*].Payload.body.retryable_uris)"
               },
               "Next": "CheckRetries"
             },
@@ -483,7 +475,7 @@ Resources:
               "MaxConcurrency": 25,
               "ItemsPath": "$.chunks",
               "Parameters": {
-                "chunk.$": "$$.Map.Item.Value",
+                "s3_uris.$": "$$.Map.Item.Value",
                 "is_retry": true
               },
               "Iterator": {
@@ -495,7 +487,7 @@ Resources:
                     "Parameters": {
                       "FunctionName": "${TranscribeAudioLambda.Arn}",
                       "Payload": {
-                        "s3_uris.$": "$.chunk",
+                        "s3_uris.$": "$.s3_uris",
                         "is_retry.$": "$.is_retry"
                       }
                     },
